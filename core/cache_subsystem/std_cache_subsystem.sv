@@ -33,7 +33,8 @@ module std_cache_subsystem
     parameter type axi_aw_chan_t = logic,
     parameter type axi_w_chan_t = logic,
     parameter type axi_req_t = logic,
-    parameter type axi_rsp_t = logic
+    parameter type axi_rsp_t = logic,
+    parameter type impl_in_t = logic
 ) (
     input logic clk_i,
     input logic rst_ni,
@@ -41,10 +42,12 @@ module std_cache_subsystem
     output logic busy_o,
     input logic stall_i,  // stall new memory requests
     input logic init_ni,  // do not init after reset
+    input impl_in_t [CVA6Cfg.ICACHE_SET_ASSOC+CVA6Cfg.DCACHE_SET_ASSOC:0] sram_impl_i,
     // I$
     input logic icache_en_i,  // enable icache (or bypass e.g: in debug mode)
     input logic icache_flush_i,  // flush the icache, flush and kill have to be asserted together
     output logic icache_miss_o,  // to performance counter
+    input  logic [CVA6Cfg.ICACHE_SET_ASSOC-1:0] icache_spm_ways_i, // icache ways configured as SPM
     // address translation requests
     input icache_areq_t icache_areq_i,  // to/from frontend
     output icache_arsp_t icache_areq_o,
@@ -60,6 +63,7 @@ module std_cache_subsystem
     input logic dcache_flush_i,  // high until acknowledged
     output logic                           dcache_flush_ack_o,     // send a single cycle acknowledge signal when the cache is flushed
     output logic dcache_miss_o,  // we missed on a ld/st
+    input [CVA6Cfg.DCACHE_SET_ASSOC-1:0]   dcache_spm_ways_i,      // dcache ways configured as SPM
     output logic                           wbuffer_empty_o,        // statically set to 1, as there is no wbuffer in this cache system
     // Request ports
     input dcache_req_i_t [NumPorts-1:0] dcache_req_ports_i,  // to/from LSU
@@ -78,6 +82,9 @@ module std_cache_subsystem
   axi_req_t axi_req_data;
   axi_rsp_t axi_resp_data;
 
+  dcache_req_o_t d2i_cache_req_in;
+  dcache_req_i_t d2i_cache_req_out;
+
   logic     icache_busy;
   logic     dcache_busy;
 
@@ -91,8 +98,11 @@ module std_cache_subsystem
       .icache_drsp_t(icache_drsp_t),
       .icache_req_t(icache_req_t),
       .icache_rtrn_t(icache_rtrn_t),
+      .dcache_req_i_t(dcache_req_i_t),
+      .dcache_req_o_t(dcache_req_o_t),
       .axi_req_t(axi_req_t),
-      .axi_rsp_t(axi_rsp_t)
+      .axi_rsp_t(axi_rsp_t),
+      .impl_in_t(impl_in_t)
   ) i_cva6_icache_axi_wrapper (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),
@@ -103,10 +113,14 @@ module std_cache_subsystem
       .busy_o    (icache_busy),
       .stall_i   (stall_i),
       .init_ni   (init_ni),
+      .icache_spm_ways_i (icache_spm_ways_i),
+      .sram_impl_i (sram_impl_i[CVA6Cfg.ICACHE_SET_ASSOC-1:0]),
       .areq_i    (icache_areq_i),
       .areq_o    (icache_areq_o),
       .dreq_i    (icache_dreq_i),
       .dreq_o    (icache_dreq_o),
+      .ispm_req_i (d2i_cache_req_out),
+      .ispm_req_o (d2i_cache_req_in),
       .axi_req_o (axi_req_icache),
       .axi_resp_i(axi_resp_icache)
   );
@@ -122,7 +136,8 @@ module std_cache_subsystem
       .dcache_req_o_t(dcache_req_o_t),
       .NumPorts(NumPorts),
       .axi_req_t(axi_req_t),
-      .axi_rsp_t(axi_rsp_t)
+      .axi_rsp_t(axi_rsp_t),
+      .impl_in_t(impl_in_t)
   ) i_nbdcache (
       .clk_i,
       .rst_ni,
@@ -133,12 +148,16 @@ module std_cache_subsystem
       .busy_o      (dcache_busy),
       .stall_i     (stall_i),
       .init_ni     (init_ni),
+      .dcache_spm_ways_i(dcache_spm_ways_i),
+      .sram_impl_i (sram_impl_i[CVA6Cfg.ICACHE_SET_ASSOC+CVA6Cfg.DCACHE_SET_ASSOC:CVA6Cfg.ICACHE_SET_ASSOC]),
       .axi_bypass_o(axi_req_bypass),
       .axi_bypass_i(axi_resp_bypass),
       .axi_data_o  (axi_req_data),
       .axi_data_i  (axi_resp_data),
       .req_ports_i (dcache_req_ports_i),
       .req_ports_o (dcache_req_ports_o),
+      .ispm_req_i  (d2i_cache_req_in),
+      .ispm_req_o  (d2i_cache_req_out),
       .amo_req_i,
       .amo_resp_o
   );

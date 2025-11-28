@@ -196,6 +196,36 @@ module cva6
       logic [CVA6Cfg.MEM_TID_WIDTH-1:0] tid;  // threadi id (used as transaction id in Ariane)
     },
 
+    // Memory management, pte for cva6
+    localparam type pte_cva6_t = struct packed {
+      logic [9:0] reserved;
+      logic [CVA6Cfg.PPNW-1:0] ppn;  // PPN length for
+      logic [1:0] rsw;
+      logic d;
+      logic a;
+      logic g;
+      logic u;
+      logic x;
+      logic w;
+      logic r;
+      logic v;
+    },
+
+    // Memory management, locked TLB entry
+    localparam type locked_tlb_entry_t = struct packed {
+      pte_cva6_t leaf_pte;
+      logic [CVA6Cfg.ASID_WIDTH-1:0] asid;
+      logic [CVA6Cfg.VMID_WIDTH-1:0] vmid;
+      logic [CVA6Cfg.VpnLen-1:0] vpn;
+      logic g_st_enbl;
+      logic s_st_enbl;
+      logic data;
+      logic instr;
+      logic virt_mode;
+      pte_entry_size_t size;
+      logic valid;
+    },
+
     // D$ data requests
     localparam type dcache_req_i_t = struct packed {
       logic [CVA6Cfg.DCACHE_INDEX_WIDTH-1:0] address_index;
@@ -310,12 +340,15 @@ module cva6
     parameter type cvxif_req_t =
     `CVXIF_REQ_T(CVA6Cfg, x_compressed_req_t, x_issue_req_t, x_register_req_t, x_commit_t),
     parameter type cvxif_resp_t =
-    `CVXIF_RESP_T(CVA6Cfg, x_compressed_resp_t, x_issue_resp_t, x_result_t)
+    `CVXIF_RESP_T(CVA6Cfg, x_compressed_resp_t, x_issue_resp_t, x_result_t),
+    parameter type impl_in_t = logic
 ) (
     // Subsystem Clock - SUBSYSTEM
     input logic clk_i,
     // Asynchronous reset active low - SUBSYSTEM
     input logic rst_ni,
+    // sram_impl signals
+    input impl_in_t [CVA6Cfg.ICACHE_SET_ASSOC+CVA6Cfg.DCACHE_SET_ASSOC:0] sram_impl_i,
     // Reset boot address - SUBSYSTEM
     input logic [CVA6Cfg.VLEN-1:0] boot_addr_i,
     // Hard ID reflected as CSR - SUBSYSTEM
@@ -581,6 +614,8 @@ module cva6
   logic [CVA6Cfg.ASID_WIDTH-1:0] vs_asid_csr_ex;
   logic [CVA6Cfg.PPNW-1:0] hgatp_ppn_csr_ex;
   logic [CVA6Cfg.VMID_WIDTH-1:0] vmid_csr_ex;
+  logic [CVA6Cfg.NumTlbColors-1:0] cur_clrs_csr_ex;
+  locked_tlb_entry_t [CVA6Cfg.LockableTlbWays-1:0] locked_tlb_entries_csr_ex;
   logic [11:0] csr_addr_ex_csr;
   fu_op csr_op_commit_csr;
   logic [CVA6Cfg.XLEN-1:0] csr_wdata_commit_csr;
@@ -598,6 +633,8 @@ module cva6
   logic [7:0] sintthresh_csr;
   logic [7:0] vsintthresh_csr;
   logic dcache_en_csr_nbdcache;
+  logic [CVA6Cfg.ICACHE_SET_ASSOC-1:0] icache_spm_ways_csr_cache;
+  logic [CVA6Cfg.DCACHE_SET_ASSOC-1:0] dcache_spm_ways_csr_cache;
   logic csr_write_fflags_commit_cs;
   logic icache_en_csr;
   logic acc_cons_en_csr;
@@ -860,6 +897,13 @@ module cva6
     assign wt_valid_ex_id[ACC_WB] = acc_valid_ex_id;
   end else begin
     assign cvxif_req = '0;
+    assign x_compressed_ready = '0;
+    assign x_compressed_resp = '0;
+    assign x_issue_ready = '0;
+    assign x_issue_resp = '0;
+    assign x_register_ready = '0;
+    assign x_result_valid = '0;
+    assign x_result = '0;
   end
 
   if (CVA6Cfg.CvxifEn && CVA6Cfg.EnableAccelerator) begin : gen_err_xif_and_acc
@@ -989,11 +1033,15 @@ module cva6
       .lsu_ctrl_t(lsu_ctrl_t),
       .x_result_t(x_result_t),
       .acc_mmu_req_t(acc_mmu_req_t),
-      .acc_mmu_resp_t(acc_mmu_resp_t)
+      .acc_mmu_resp_t(acc_mmu_resp_t),
+      .pte_cva6_t(pte_cva6_t),
+      .locked_tlb_entry_t(locked_tlb_entry_t)
   ) ex_stage_i (
       .clk_i(clk_i),
       .rst_ni(rst_uarch_n),
       .debug_mode_i(debug_mode),
+      .cur_clrs_i(cur_clrs_csr_ex),
+      .locked_tlb_entries_i(locked_tlb_entries_csr_ex),
       .flush_i(flush_ctrl_ex),
       .rs1_forwarding_i(rs1_forwarding_id_ex),
       .rs2_forwarding_i(rs2_forwarding_id_ex),
@@ -1180,6 +1228,8 @@ module cva6
       .irq_ctrl_t        (irq_ctrl_t),
       .scoreboard_entry_t(scoreboard_entry_t),
       .rvfi_probes_csr_t (rvfi_probes_csr_t),
+      .pte_cva6_t        (pte_cva6_t),
+      .locked_tlb_entry_t(locked_tlb_entry_t),
       .MHPMCounterNum    (MHPMCounterNum)
   ) csr_regfile_i (
       .clk_i,
@@ -1253,6 +1303,10 @@ module cva6
       .single_step_o           (single_step_csr_commit),
       .icache_en_o             (icache_en_csr),
       .dcache_en_o             (dcache_en_csr_nbdcache),
+      .icache_spm_ways_o       (icache_spm_ways_csr_cache),
+      .dcache_spm_ways_o       (dcache_spm_ways_csr_cache),
+      .cur_clrs_o              (cur_clrs_csr_ex),
+      .locked_tlb_entries_o    (locked_tlb_entries_csr_ex),
       .acc_cons_en_o           (acc_cons_en_csr),
       .fence_t_pad_o           (fence_t_pad_csr_ctrl),
       .fence_t_src_sel_o       (fence_t_src_sel_csr_ctrl),
@@ -1383,7 +1437,7 @@ module cva6
   dcache_req_o_t [NumPorts-1:0] dcache_req_from_cache;
 
   // D$ request
-  // Since ZCMT is only enable for embdeed class so MMU should be disable. 
+  // Since ZCMT is only enable for embdeed class so MMU should be disable.
   // Cache port 0 is being ultilize in implicit read access in ZCMT extension.
   if (CVA6Cfg.RVZCMT & ~(CVA6Cfg.MmuPresent)) begin
     assign dcache_req_to_cache[0] = dcache_req_ports_id_cache;
@@ -1538,6 +1592,7 @@ module cva6
         .noc_resp_i(noc_resp_i)
     );
     assign inval_ready = 1'b1;
+    assign miss_vld_bits = '0;
   end else begin : gen_cache_wb
     std_cache_subsystem #(
         // note: this only works with one cacheable region
@@ -1557,7 +1612,8 @@ module cva6
         .axi_aw_chan_t (axi_aw_chan_t),
         .axi_w_chan_t  (axi_w_chan_t),
         .axi_req_t     (noc_req_t),
-        .axi_rsp_t     (noc_resp_t)
+        .axi_rsp_t     (noc_resp_t),
+        .impl_in_t     (impl_in_t)
     ) i_cache_subsystem (
         // to D$
         .clk_i             (clk_i),
@@ -1566,10 +1622,12 @@ module cva6
         .busy_o            (busy_cache_ctrl),
         .stall_i           (stall_ctrl_cache),
         .init_ni           (init_ctrl_cache_n),
+        .sram_impl_i       (sram_impl_i),
         // I$
         .icache_en_i       (icache_en_csr),
         .icache_flush_i    (icache_flush_ctrl_cache),
         .icache_miss_o     (icache_miss_cache_perf),
+        .icache_spm_ways_i (icache_spm_ways_csr_cache),
         .icache_areq_i     (icache_areq_ex_cache),
         .icache_areq_o     (icache_areq_cache_ex),
         .icache_dreq_i     (icache_dreq_if_cache),
@@ -1578,6 +1636,7 @@ module cva6
         .dcache_enable_i   (dcache_en_csr_nbdcache),
         .dcache_flush_i    (dcache_flush_ctrl_cache),
         .dcache_flush_ack_o(dcache_flush_ack_cache_ctrl),
+        .dcache_spm_ways_i (dcache_spm_ways_csr_cache),
         // to commit stage
         .amo_req_i         (amo_req),
         .amo_resp_o        (amo_resp),
@@ -1593,6 +1652,7 @@ module cva6
     );
     assign dcache_commit_wbuffer_not_ni = 1'b1;
     assign inval_ready                  = 1'b1;
+    assign miss_vld_bits                = '0;
   end
 
   // ----------------

@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.0
 // You may obtain a copy of the License at https://solderpad.org/licenses/
 //
-// Original Author: Jean-Roch COULON - Thales
+// Original Author: Enrico Zelioli <ezelioli@iis.ee.ethz.ch> - ETH Zurich
 
 
 package cva6_config_pkg;
@@ -19,26 +19,28 @@ package cva6_config_pkg;
   localparam CVA6ConfigF8En = 0;
   localparam CVA6ConfigF8AltEn = 0;
   localparam CVA6ConfigFVecEn = 0;
+  localparam CVA6ConfigSuperscalarEn = 0; // Only works with FPU disabled
 
-  localparam CVA6ConfigCvxifEn = 1;
+  localparam CVA6ConfigCvxifEn = 0;
   localparam CVA6ConfigCExtEn = 1;
   localparam CVA6ConfigZcbExtEn = 1;
+  localparam CVA6ConfigZcmtExtEn = 0;
   localparam CVA6ConfigZcmpExtEn = 0;
   localparam CVA6ConfigAExtEn = 1;
-  localparam CVA6ConfigHExtEn = 0;  // always disabled
-  localparam CVA6ConfigBExtEn = 1;
+  localparam CVA6ConfigHExtEn = 1;
+  localparam CVA6ConfigBExtEn = 0;
   localparam CVA6ConfigVExtEn = 0;
   localparam CVA6ConfigRVZiCond = 1;
-  localparam CVA6ConfigSclicExtEn = 0;
-  localparam CVA6ConfigXhclicExtEn = 0;
+  localparam CVA6ConfigSclicExtEn = 1;
+  localparam CVA6ConfigXhclicExtEn = 1;
 
   localparam CVA6ConfigAxiIdWidth = 4;
-  localparam CVA6ConfigAxiAddrWidth = 64;
+  localparam CVA6ConfigAxiAddrWidth = 48;
   localparam CVA6ConfigAxiDataWidth = 64;
   localparam CVA6ConfigFetchUserEn = 0;
   localparam CVA6ConfigFetchUserWidth = CVA6ConfigXlen;
   localparam CVA6ConfigDataUserEn = 0;
-  localparam CVA6ConfigDataUserWidth = CVA6ConfigXlen;
+  localparam CVA6ConfigDataUserWidth = 2;
 
   localparam CVA6ConfigIcacheByteSize = 16384;
   localparam CVA6ConfigIcacheSetAssoc = 4;
@@ -50,11 +52,12 @@ package cva6_config_pkg;
   localparam CVA6ConfigICacheSpmAddrBase = 56'h01A0_0000;
   localparam CVA6ConfigDCacheSpmAddrBase = 56'h0180_0000;
 
-  localparam CVA6ConfigDcacheFlushOnFence = 1'b0;
-  localparam CVA6ConfigDcacheInvalidateOnFlush = 1'b0;
+  localparam CVA6ConfigDcacheFlushOnFence = 1'b1;
+  localparam CVA6ConfigDcacheInvalidateOnFlush = 1'b0; // Only for HPDCache
+  localparam CVA6ConfigMaxOutstandingStores = 7;
 
-  localparam CVA6ConfigDcacheIdWidth = 1;
-  localparam CVA6ConfigMemTidWidth = 2;
+  localparam CVA6ConfigDcacheIdWidth = 1;  // Must be >= $clog2(CVA6Cfg.NrLoadBufEntries)
+  localparam CVA6ConfigMemTidWidth = CVA6ConfigAxiIdWidth;
 
   localparam CVA6ConfigWtDcacheWbufDepth = 8;
 
@@ -66,7 +69,16 @@ package cva6_config_pkg;
 
   localparam CVA6ConfigRASDepth = 2;
   localparam CVA6ConfigBTBEntries = 32;
+  localparam config_pkg::bp_type_t CVA6ConfigBPType = config_pkg::BHT;
   localparam CVA6ConfigBHTEntries = 128;
+  localparam CVA6ConfigBHTHistBits = 3;
+
+  localparam CVA6ConfigInstrTlbEntries = 16;
+  localparam CVA6ConfigDataTlbEntries = 64;
+  localparam CVA6ConfigLockableTlbWays = 8;
+  localparam CVA6ConfigNumTlbColors = 16;
+  localparam CVA6ConfigUseSharedTlb = 0;
+  localparam CVA6ConfigSharedTlbDepth = 64;
 
   localparam CVA6ConfigTvalEn = 1;
 
@@ -74,11 +86,11 @@ package cva6_config_pkg;
 
   localparam CVA6ConfigPerfCounterEn = 1;
 
-  localparam config_pkg::cache_type_t CVA6ConfigDcacheType = config_pkg::WT;
+  localparam config_pkg::cache_type_t CVA6ConfigDcacheType = config_pkg::WB;
 
   localparam CVA6ConfigMmuPresent = 1;
 
-  localparam CVA6ConfigRvfiTrace = 1;
+  localparam CVA6ConfigRvfiTrace = 0;
 
   localparam config_pkg::cva6_user_cfg_t cva6_cfg = '{
       XLEN: unsigned'(CVA6ConfigXlen),
@@ -86,7 +98,7 @@ package cva6_config_pkg;
       FpgaEn: bit'(0),  // for Xilinx and Altera
       FpgaAlteraEn: bit'(0),  // for Altera (only)
       TechnoCut: bit'(0),
-      SuperscalarEn: bit'(0),
+      SuperscalarEn: bit'(CVA6ConfigSuperscalarEn),
       NrCommitPorts: unsigned'(2),
       AxiAddrWidth: unsigned'(CVA6ConfigAxiAddrWidth),
       AxiDataWidth: unsigned'(CVA6ConfigAxiDataWidth),
@@ -102,12 +114,12 @@ package cva6_config_pkg;
       XF8ALT: bit'(CVA6ConfigF8AltEn),
       RVA: bit'(CVA6ConfigAExtEn),
       RVB: bit'(CVA6ConfigBExtEn),
-      ZKN: bit'(1),
+      ZKN: bit'(0),
       RVV: bit'(CVA6ConfigVExtEn),
       RVC: bit'(CVA6ConfigCExtEn),
       RVH: bit'(CVA6ConfigHExtEn),
       RVZCB: bit'(CVA6ConfigZcbExtEn),
-      RVZCMT: bit'(0),
+      RVZCMT: bit'(CVA6ConfigZcmtExtEn),
       RVZCMP: bit'(CVA6ConfigZcmpExtEn),
       XFVec: bit'(CVA6ConfigFVecEn),
       CvxifEn: bit'(CVA6ConfigCvxifEn),
@@ -124,12 +136,12 @@ package cva6_config_pkg;
       RVU: bit'(1),
       SoftwareInterruptEn: bit'(1),
       HaltAddress: 64'h800,
-      ExceptionAddress: 64'h808,
+      ExceptionAddress: 64'h810,
       RASDepth: unsigned'(CVA6ConfigRASDepth),
       BTBEntries: unsigned'(CVA6ConfigBTBEntries),
-      BPType: config_pkg::BHT,
+      BPType: CVA6ConfigBPType,
       BHTEntries: unsigned'(CVA6ConfigBHTEntries),
-      BHTHist: unsigned'(3),
+      BHTHist: unsigned'(CVA6ConfigBHTHistBits),
       DmBaseAddress: 64'h0,
       TvalEn: bit'(CVA6ConfigTvalEn),
       DirectVecOnly: bit'(0),
@@ -149,7 +161,7 @@ package cva6_config_pkg;
       NrCachedRegionRules: unsigned'(1),
       CachedRegionAddrBase: 1024'({64'h8000_0000}),
       CachedRegionLength: 1024'({64'h40000000}),
-      MaxOutstandingStores: unsigned'(7),
+      MaxOutstandingStores: unsigned'(CVA6ConfigMaxOutstandingStores),
       DebugEn: bit'(1),
       AxiBurstWriteEn: bit'(0),
       IcacheByteSize: unsigned'(CVA6ConfigIcacheByteSize),
@@ -169,12 +181,12 @@ package cva6_config_pkg;
       WtDcacheWbufDepth: int'(CVA6ConfigWtDcacheWbufDepth),
       FetchUserWidth: unsigned'(CVA6ConfigFetchUserWidth),
       FetchUserEn: unsigned'(CVA6ConfigFetchUserEn),
-      InstrTlbEntries: int'(16),
-      DataTlbEntries: int'(16),
-      LockableTlbWays: int'(8),
-      NumTlbColors: int'(4),
-      UseSharedTlb: bit'(0),
-      SharedTlbDepth: int'(64),
+      InstrTlbEntries: int'(CVA6ConfigInstrTlbEntries),
+      DataTlbEntries: int'(CVA6ConfigDataTlbEntries),
+      LockableTlbWays: int'(CVA6ConfigLockableTlbWays),
+      NumTlbColors: int'(CVA6ConfigNumTlbColors),
+      UseSharedTlb: bit'(CVA6ConfigUseSharedTlb),
+      SharedTlbDepth: int'(CVA6ConfigSharedTlbDepth),
       NrLoadPipeRegs: int'(CVA6ConfigNrLoadPipeRegs),
       NrStorePipeRegs: int'(CVA6ConfigNrStorePipeRegs),
       DcacheIdWidth: int'(CVA6ConfigDcacheIdWidth)
